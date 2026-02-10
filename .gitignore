@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment files
+.env
+.env.*
+
+# OS files
+desktop.ini
+Thumbs.db
+.DS_Store
+
+# Exclude everything by default (Downloads folder has personal files)
+*
+
+# Include only project files
+!.gitignore
+!package.json
+!package-lock.json
+!vite.config.ts
+!postcss.config.mjs
+!index.html
+!README.md
+!ATTRIBUTIONS.md
+!QUICKBOOKS_SETUP.md
+!CURRENT_MAINTAINER
+
+# Include project directories
+!src/
+!src/**
+!supabase/
+!supabase/**
+!utils/
+!utils/**
+!guidelines/
+!guidelines/**
+!assets/
+!assets/**
