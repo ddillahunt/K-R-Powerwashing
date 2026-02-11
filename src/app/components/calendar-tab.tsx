@@ -455,6 +455,37 @@ export function CalendarTab() {
         </CardContent>
       </Card>
 
+      {/* Calendar Legend */}
+      <Card>
+        <CardHeader className="space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Legend</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="size-3 rounded-full bg-blue-500" />
+              <span className="text-xs">Appointment</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="size-3 rounded-full bg-primary" />
+              <span className="text-xs">Job Scheduled</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="size-3 rounded-full bg-amber-500" />
+              <span className="text-xs">Job In Progress</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="size-3 rounded-full bg-green-500" />
+              <span className="text-xs">Job Completed</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="size-3 rounded-full bg-red-500" />
+              <span className="text-xs">Job Cancelled</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Crew Members List */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
@@ -950,6 +981,75 @@ export function CalendarTab() {
           )}
         </CardContent>
       </Card>
+
+      {/* Crew Schedules */}
+      {technicians.length > 0 && (
+        <Card className="lg:col-span-3">
+          <CardHeader>
+            <CardTitle>Crew Schedules</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {[...technicians, 'Unassigned'].map((crew) => {
+                const crewAppointments = allAppointmentsSorted.filter(
+                  apt => (apt.assignedCrew || 'Unassigned') === crew
+                );
+                return (
+                  <Card key={crew} className="border">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                          <Users className="size-4" />
+                          {crew}
+                        </CardTitle>
+                        <Badge variant="secondary" className="text-xs">
+                          {crewAppointments.length} job{crewAppointments.length !== 1 ? 's' : ''}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      {crewAppointments.length === 0 ? (
+                        <p className="text-sm text-gray-400 text-center py-3">No appointments</p>
+                      ) : (
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                          {crewAppointments.map((apt) => (
+                            <div
+                              key={apt.id}
+                              className="p-2 rounded-md border bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
+                              onClick={() => handleOpenEditDialog(apt)}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium">{apt.customerName}</span>
+                                <Badge
+                                  variant={apt.status === 'scheduled' ? 'default' : apt.status === 'completed' ? 'secondary' : 'destructive'}
+                                  className="text-[10px] px-1.5 py-0"
+                                >
+                                  {apt.status}
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1">{apt.services.join(', ')}</p>
+                              <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                                <span className="flex items-center gap-1">
+                                  <CalendarIcon className="size-3" />
+                                  {format(new Date(apt.date), 'MMM d')}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Clock className="size-3" />
+                                  {apt.time}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* All Appointments - Ascending Order */}
       <Card className="lg:col-span-3">
