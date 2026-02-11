@@ -7,7 +7,7 @@ import { Label } from './ui/label';
 import { CrewAppNotifications } from './crew-app-notifications';
 import { Calendar, Clock, MapPin, User, Briefcase, CheckCircle, XCircle } from 'lucide-react';
 import { format, startOfWeek, endOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
-import logoImage from '@/assets/logo.svg';
+import logoImage from '@/assets/51bd7988429b8271130dad268ae7b18b150f0caf.png';
 
 interface CrewMember {
   id: string;
