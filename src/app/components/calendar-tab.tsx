@@ -452,19 +452,19 @@ export function CalendarTab() {
             {selectedDate ? format(selectedDate, 'MMMM d, yyyy') : 'Select a date'}
           </CardTitle>
           <div className="flex gap-2">
-            {/* Add Technician Dialog */}
+            {/* Add Crew Member Dialog */}
             <Dialog open={isTechDialogOpen} onOpenChange={setIsTechDialogOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" variant="outline">
                   <UserPlus className="size-4 mr-2" />
-                  Add Technician
+                  Add Crew Member
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Manage Technicians</DialogTitle>
+                  <DialogTitle>Manage Crew Members</DialogTitle>
                   <DialogDescription>
-                    Add or remove technicians from the assignment list.
+                    Add or remove crew members from the assignment list.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
@@ -472,7 +472,7 @@ export function CalendarTab() {
                     <Input
                       value={newTechName}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewTechName(e.target.value)}
-                      placeholder="Technician name"
+                      placeholder="Crew member name"
                       onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') handleAddTechnician(); }}
                     />
                     <Button onClick={handleAddTechnician} disabled={!newTechName.trim()}>
@@ -482,7 +482,7 @@ export function CalendarTab() {
                   </div>
                   {technicians.length > 0 ? (
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium">Current Technicians</Label>
+                      <Label className="text-sm font-medium">Current Crew Members</Label>
                       {technicians.map((tech: string) => (
                         <div key={tech} className="flex items-center justify-between p-2 bg-gray-50 rounded-md border">
                           <div className="flex items-center gap-2">
@@ -497,9 +497,9 @@ export function CalendarTab() {
                             </AlertDialogTrigger>
                             <AlertDialogContent>
                               <AlertDialogHeader>
-                                <AlertDialogTitle>Remove Technician?</AlertDialogTitle>
+                                <AlertDialogTitle>Remove Crew Member?</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Remove "{tech}" from the technician list? Existing appointments assigned to this technician will not be changed.
+                                  Remove "{tech}" from the crew member list? Existing appointments assigned to this crew member will not be changed.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
@@ -517,7 +517,7 @@ export function CalendarTab() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-gray-400 text-center py-2">No technicians added yet</p>
+                    <p className="text-sm text-gray-400 text-center py-2">No crew members added yet</p>
                   )}
                 </div>
               </DialogContent>
@@ -646,13 +646,13 @@ export function CalendarTab() {
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="assignedCrew">Assign Technician</Label>
+                  <Label htmlFor="assignedCrew">Assign Crew Member</Label>
                   <Select
                     value={newAppointment.assignedCrew}
                     onValueChange={(value: string) => setNewAppointment({ ...newAppointment, assignedCrew: value })}
                   >
                     <SelectTrigger id="assignedCrew">
-                      <SelectValue placeholder="Select a technician" />
+                      <SelectValue placeholder="Select a crew member" />
                     </SelectTrigger>
                     <SelectContent>
                       {availableCrews.map((crew: string) => (
@@ -804,13 +804,13 @@ export function CalendarTab() {
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="edit-assignedCrew">Assign Technician</Label>
+                  <Label htmlFor="edit-assignedCrew">Assign Crew Member</Label>
                   <Select
                     value={newAppointment.assignedCrew}
                     onValueChange={(value: string) => setNewAppointment({ ...newAppointment, assignedCrew: value })}
                   >
                     <SelectTrigger id="edit-assignedCrew">
-                      <SelectValue placeholder="Select a technician" />
+                      <SelectValue placeholder="Select a crew member" />
                     </SelectTrigger>
                     <SelectContent>
                       {availableCrews.map((crew: string) => (
@@ -873,7 +873,7 @@ export function CalendarTab() {
                           </div>
                           <div className="flex items-center gap-1">
                             <Users className="size-4" />
-                            Technician: {apt.assignedCrew || 'Unassigned'}
+                            Crew: {apt.assignedCrew || 'Unassigned'}
                           </div>
                           <div className="flex items-center gap-1">
                             <MapPin className="size-4" />
@@ -954,7 +954,7 @@ export function CalendarTab() {
                           </div>
                           <div className="flex items-center gap-1">
                             <Users className="size-4" />
-                            Technician: {apt.assignedCrew || 'Unassigned'}
+                            Crew: {apt.assignedCrew || 'Unassigned'}
                           </div>
                           <div className="flex items-center gap-1">
                             <MapPin className="size-4" />
