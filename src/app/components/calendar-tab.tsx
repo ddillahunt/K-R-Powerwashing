@@ -10,8 +10,8 @@ import { Label } from '@/app/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/app/components/ui/select';
 import { Textarea } from '@/app/components/ui/textarea';
 import { Checkbox } from '@/app/components/ui/checkbox';
-import { Clock, MapPin, Plus, Edit, Trash2, X, Users, UserPlus, Calendar as CalendarIcon } from 'lucide-react';
-import { format } from 'date-fns';
+import { Clock, MapPin, Plus, Edit, Trash2, X, Users, UserPlus, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { format, startOfWeek, addDays, isSameDay, isToday } from 'date-fns';
 
 interface Appointment {
   id: string;
@@ -30,6 +30,8 @@ const mockAppointments: Appointment[] = [];
 
 export function CalendarTab() {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
+  const [weekStart, setWeekStart] = useState<Date>(startOfWeek(new Date()));
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [isLoaded, setIsLoaded] = useState(false); // Track if initial load is complete
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -156,6 +158,19 @@ export function CalendarTab() {
       localStorage.setItem('kr-appointments', JSON.stringify(appointments));
     }
   }, [appointments, isLoaded]);
+
+  // Get 7 days of the current week
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+  // Get appointment count for a specific day
+  const getAppointmentCount = (day: Date) => {
+    const dayStr = format(day, 'yyyy-MM-dd');
+    return appointments.filter(apt => format(new Date(apt.date), 'yyyy-MM-dd') === dayStr).length;
+  };
+
+  const handleWeekDateSelect = (day: Date) => {
+    setSelectedDate(day);
+  };
 
   const selectedDateAppointments = appointments.filter(
     (apt) => selectedDate && format(new Date(apt.date), 'yyyy-MM-dd') === format(selectedDate, 'yyyy-MM-dd')
@@ -358,16 +373,76 @@ export function CalendarTab() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <Card className="lg:col-span-1">
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
           <CardTitle>Calendar</CardTitle>
+          <div className="flex rounded-lg border overflow-hidden">
+            <button
+              onClick={() => setViewMode('month')}
+              className={`px-3 py-1 text-xs font-medium transition-colors ${viewMode === 'month' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}
+            >
+              Month
+            </button>
+            <button
+              onClick={() => setViewMode('week')}
+              className={`px-3 py-1 text-xs font-medium transition-colors ${viewMode === 'week' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}
+            >
+              Week
+            </button>
+          </div>
         </CardHeader>
         <CardContent>
-          <Calendar
-            mode="single"
-            selected={selectedDate}
-            onSelect={setSelectedDate}
-            className="rounded-md border"
-          />
+          {viewMode === 'month' ? (
+            <Calendar
+              mode="single"
+              selected={selectedDate}
+              onSelect={setSelectedDate}
+              className="rounded-md border"
+            />
+          ) : (
+            <div className="rounded-md border p-3">
+              {/* Week navigation */}
+              <div className="flex items-center justify-between mb-4">
+                <Button variant="ghost" size="sm" onClick={() => setWeekStart(addDays(weekStart, -7))}>
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <span className="text-sm font-medium">
+                  {format(weekDays[0], 'MMM d')} - {format(weekDays[6], 'MMM d, yyyy')}
+                </span>
+                <Button variant="ghost" size="sm" onClick={() => setWeekStart(addDays(weekStart, 7))}>
+                  <ChevronRight className="size-4" />
+                </Button>
+              </div>
+              {/* Week day grid */}
+              <div className="grid grid-cols-7 gap-1">
+                {weekDays.map((day) => {
+                  const count = getAppointmentCount(day);
+                  const isSelected = selectedDate && isSameDay(day, selectedDate);
+                  const isTodayDate = isToday(day);
+                  return (
+                    <button
+                      key={day.toISOString()}
+                      onClick={() => handleWeekDateSelect(day)}
+                      className={`flex flex-col items-center p-2 rounded-lg transition-colors text-center
+                        ${isSelected ? 'bg-primary text-primary-foreground' : isTodayDate ? 'bg-blue-50 border border-blue-200' : 'hover:bg-muted'}
+                      `}
+                    >
+                      <span className="text-[10px] uppercase font-medium opacity-70">
+                        {format(day, 'EEE')}
+                      </span>
+                      <span className={`text-lg font-semibold ${isSelected ? '' : isTodayDate ? 'text-blue-600' : ''}`}>
+                        {format(day, 'd')}
+                      </span>
+                      {count > 0 && (
+                        <span className={`text-[10px] mt-0.5 px-1.5 rounded-full font-medium ${isSelected ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-blue-100 text-blue-700'}`}>
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
