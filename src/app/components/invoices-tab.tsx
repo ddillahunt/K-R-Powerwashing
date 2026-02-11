@@ -59,6 +59,14 @@ export function InvoicesTab() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
 
+  // Load customers from localStorage
+  useEffect(() => {
+    const savedCustomers = localStorage.getItem('kr-customers');
+    if (savedCustomers) {
+      setCustomers(JSON.parse(savedCustomers));
+    }
+  }, []);
+
   // Load invoices from localStorage on component mount
   useEffect(() => {
     const loadInvoices = () => {
@@ -97,65 +105,11 @@ export function InvoicesTab() {
     }
   }, [invoices]);
 
-  // Load customers from localStorage
-  useEffect(() => {
-    const savedCustomers = localStorage.getItem('kr-customers');
-    if (savedCustomers) {
-      setCustomers(JSON.parse(savedCustomers));
-    }
-
-    // Listen for customer updates
-    const handleCustomersUpdate = () => {
-      const updatedCustomers = localStorage.getItem('kr-customers');
-      if (updatedCustomers) {
-        setCustomers(JSON.parse(updatedCustomers));
-      }
-    };
-
-    window.addEventListener('kr-customers-updated', handleCustomersUpdate);
-    return () => window.removeEventListener('kr-customers-updated', handleCustomersUpdate);
-  }, []);
-
-  // Get customer email by name
-  const getCustomerEmail = (customerName: string): string => {
-    const customer = customers.find(c => c.name === customerName);
-    return customer?.email || '';
-  };
-
-  // Generate mailto link for emailing invoice to customer
-  const handleEmailInvoice = (invoice: Invoice) => {
-    const customerEmail = getCustomerEmail(invoice.customerName);
-    const subject = encodeURIComponent(`Invoice ${invoice.id} from K&R Powerwashing`);
-    const statusText = invoice.status === 'paid'
-      ? 'This invoice has been marked as PAID. Thank you for your payment!'
-      : invoice.status === 'overdue'
-      ? 'This invoice is currently OVERDUE. Please remit payment at your earliest convenience.'
-      : 'Payment is due by the date shown below.';
-
-    const body = encodeURIComponent(
-`Dear ${invoice.customerName},
-
-Please find your invoice details below:
-
-Invoice ID: ${invoice.id}
-Service: ${invoice.service}
-Amount Due: $${invoice.amount.toLocaleString()}
-Due Date: ${format(invoice.dueDate, 'MMMM d, yyyy')}
-Status: ${invoice.status.toUpperCase()}
-
-${statusText}
-
-If you have any questions about this invoice, please don't hesitate to contact us.
-
-Best regards,
-K&R Powerwashing Team`
-    );
-    const mailtoLink = `mailto:${customerEmail}?subject=${subject}&body=${body}`;
-    window.open(mailtoLink, '_blank');
-  };
-
   const handleStatusChange = (invoiceId: string, newStatus: Invoice['status']) => {
-    setInvoices(invoices.map(inv => 
+    // Find the invoice before updating
+    const invoice = invoices.find(inv => inv.id === invoiceId);
+    
+    const updatedInvoices = invoices.map(inv => 
       inv.id === invoiceId 
         ? { 
             ...inv, 
@@ -163,7 +117,30 @@ K&R Powerwashing Team`
             paidDate: newStatus === 'paid' ? new Date() : undefined
           }
         : inv
-    ));
+    );
+    setInvoices(updatedInvoices);
+
+    // When invoice is marked as paid, update corresponding quote status to "invoiced"
+    if (newStatus === 'paid' && invoice) {
+      const savedQuotes = localStorage.getItem('kr-quotes');
+      if (savedQuotes) {
+        const quotes = JSON.parse(savedQuotes);
+        const updatedQuotes = quotes.map((quote: any) => {
+          // Match quote by customer name and check if invoice service matches any of the quote's services
+          // The invoice service might be a comma-separated list of services
+          if (quote.customerName === invoice.customerName && quote.status !== 'invoiced') {
+            // Check if the quote services array matches the invoice service
+            const quoteServicesStr = quote.services ? quote.services.join(', ') : '';
+            if (quoteServicesStr === invoice.service) {
+              return { ...quote, status: 'invoiced' };
+            }
+          }
+          return quote;
+        });
+        localStorage.setItem('kr-quotes', JSON.stringify(updatedQuotes));
+        window.dispatchEvent(new Event('kr-quotes-updated'));
+      }
+    }
   };
 
   const handleDeleteInvoice = (invoiceId: string) => {
@@ -179,6 +156,69 @@ K&R Powerwashing Team`
     .reduce((sum, inv) => sum + inv.amount, 0);
 
   const overdueCount = invoices.filter(inv => inv.status === 'overdue').length;
+
+  const handleEmailOpen = (invoice: Invoice) => {
+    // Get customer email from customers database
+    const customer = customers.find(c => c.name === invoice.customerName);
+    const customerEmail = customer?.email || '';
+    
+    if (!customerEmail) {
+      alert('No email address found for this customer. Please update customer information.');
+      return;
+    }
+    
+    // Create different email content based on invoice status
+    const subject = invoice.status === 'paid' 
+      ? `Payment Received - Invoice ${invoice.id} - K&R POWERWASHING`
+      : `Invoice ${invoice.id} - K&R POWERWASHING`;
+    
+    const message = invoice.status === 'paid'
+      ? `Dear ${invoice.customerName},
+
+Thank you for your payment!
+
+We've received your payment for invoice ${invoice.id} and truly appreciate your business.
+
+Payment Details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Invoice Number: ${invoice.id}
+Service: ${invoice.service}
+Amount Paid: $${invoice.amount.toLocaleString()}
+Payment Date: ${invoice.paidDate ? format(invoice.paidDate, 'MMMM d, yyyy') : format(new Date(), 'MMMM d, yyyy')}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+We look forward to serving you again in the future!
+
+Best regards,
+K&R POWERWASHING Management`
+      : `Dear ${invoice.customerName},
+
+Thank you for choosing K&R POWERWASHING! 
+
+This is a friendly reminder regarding invoice ${invoice.id}.
+
+Invoice Details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Invoice Number: ${invoice.id}
+Service: ${invoice.service}
+Amount Due: $${invoice.amount.toLocaleString()}
+Due Date: ${format(invoice.dueDate, 'MMMM d, yyyy')}
+Status: ${invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Payment can be made via cash, check, or online payment.
+
+If you have any questions about this invoice, please don't hesitate to contact us.
+
+Thank you for your business!
+
+Best regards,
+K&R POWERWASHING Management`;
+    
+    // Create mailto link and open email client
+    const mailtoLink = `mailto:${customerEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+    window.location.href = mailtoLink;
+  };
 
   return (
     <div className="space-y-6">
@@ -221,7 +261,6 @@ K&R Powerwashing Team`
             </p>
           </CardContent>
         </Card>
-
       </div>
 
       <div className="bg-white rounded-lg border">
@@ -277,14 +316,6 @@ K&R Powerwashing Team`
                         <SelectItem value="overdue">Overdue</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleEmailInvoice(invoice)}
-                      title="Email invoice to customer"
-                    >
-                      <Mail className="size-4 text-green-600" />
-                    </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
@@ -313,6 +344,14 @@ K&R Powerwashing Team`
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      title="Email invoice"
+                      onClick={() => handleEmailOpen(invoice)}
+                    >
+                      <Mail className="size-4 text-gray-500" />
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>

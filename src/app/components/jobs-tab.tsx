@@ -1,16 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/app/components/ui/card';
 import { Button } from '@/app/components/ui/button';
 import { Badge } from '@/app/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/app/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/app/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/app/components/ui/alert-dialog';
 import { Input } from '@/app/components/ui/input';
 import { Label } from '@/app/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/app/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
+import { Textarea } from '@/app/components/ui/textarea';
 import { ImageWithFallback } from '@/app/components/figma/ImageWithFallback';
-import { Calendar, Clock, Upload, Image as ImageIcon, Trash2, X, FileText, StickyNote } from 'lucide-react';
+import { Calendar, Upload, Image as ImageIcon, Trash2, Edit, Bell } from 'lucide-react';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 
 interface JobPhoto {
   id: string;
@@ -23,14 +25,17 @@ interface Job {
   id: string;
   quoteId?: string;
   customerName: string;
+  customerEmail?: string;
   service: string;
   address: string;
   scheduledDate: string; // Changed to string for localStorage
-  scheduledTime?: string; // Time from calendar appointment (e.g., "9:00 AM")
   assignedCrew: string;
-  status: 'scheduled' | 'in-progress' | 'completed' | 'cancelled';
+  status: 'pending' | 'scheduled' | 'in-progress' | 'completed' | 'cancelled';
   photos: JobPhoto[];
   notes: string;
+  reminderSent?: boolean;
+  completedDate?: string;
+  yearlyReminderSent?: boolean;
 }
 
 const mockJobs: Job[] = [
@@ -40,7 +45,6 @@ const mockJobs: Job[] = [
     service: 'House Exterior Wash',
     address: '123 Main St, Springfield, IL',
     scheduledDate: new Date(2026, 0, 31).toISOString(),
-    scheduledTime: '9:00 AM',
     assignedCrew: 'Team A',
     status: 'scheduled',
     photos: [],
@@ -52,7 +56,6 @@ const mockJobs: Job[] = [
     service: 'Driveway Cleaning',
     address: '456 Oak Ave, Springfield, IL',
     scheduledDate: new Date(2026, 0, 30).toISOString(),
-    scheduledTime: '2:00 PM',
     assignedCrew: 'Team B',
     status: 'in-progress',
     photos: [],
@@ -64,22 +67,45 @@ const mockJobs: Job[] = [
     service: 'Deck/Patio Cleaning',
     address: '789 Elm St, Springfield, IL',
     scheduledDate: new Date(2026, 0, 28).toISOString(),
-    scheduledTime: '10:30 AM',
     assignedCrew: 'Team A',
-    status: 'completed',
+    status: 'cancelled',
     photos: [],
-    notes: 'Wood deck restoration'
+    notes: 'Wood deck restoration',
+    completedDate: new Date(2025, 1, 15).toISOString(), // Completed Feb 15, 2025 (almost 1 year ago)
+    reminderSent: true
   }
 ];
 
 export function JobsTab() {
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [appointments, setAppointments] = useState<any[]>([]);
-  const [quotes, setQuotes] = useState<any[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [isPhotoDialogOpen, setIsPhotoDialogOpen] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'scheduled' | 'in-progress' | 'completed'>('all');
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [filter, setFilter] = useState<'all' | 'pending' | 'scheduled' | 'in-progress' | 'completed' | 'cancelled'>('all');
   const [isInitialized, setIsInitialized] = useState(false);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [crewMembers, setCrewMembers] = useState<any[]>([]);
+  
+  const [editJobForm, setEditJobForm] = useState({
+    customerName: '',
+    service: '',
+    address: '',
+    scheduledDate: '',
+    assignedCrew: '',
+    status: 'scheduled' as Job['status'],
+    notes: ''
+  });
+
+  const availableServices = [
+    'House Exterior Wash',
+    'Driveway Cleaning',
+    'Deck/Patio Cleaning',
+    'Roof Cleaning',
+    'Gutter Cleaning',
+    'Window Cleaning',
+    'Fence Cleaning'
+  ];
 
   // Function to load jobs from localStorage
   const loadJobs = () => {
@@ -98,129 +124,65 @@ export function JobsTab() {
   useEffect(() => {
     loadJobs();
 
-    // Listen for storage changes from other components (like QuotesTab)
+    // Listen for storage changes from other tabs/windows only (not same component)
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'kr-jobs') {
         loadJobs();
       }
     };
 
-    // Listen for custom event when jobs are updated
-    const handleJobsUpdate = () => {
-      loadJobs();
-    };
-
     window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('kr-jobs-updated', handleJobsUpdate);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('kr-jobs-updated', handleJobsUpdate);
     };
   }, []);
-
-  // Load appointments from localStorage to get scheduled times
-  useEffect(() => {
-    const loadAppointments = () => {
-      const savedAppointments = localStorage.getItem('kr-appointments');
-      if (savedAppointments) {
-        setAppointments(JSON.parse(savedAppointments));
-      }
-    };
-    loadAppointments();
-
-    // Listen for appointment updates from storage events (cross-tab)
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'kr-appointments') {
-        loadAppointments();
-      }
-    };
-
-    // Listen for appointment updates from custom events (same-tab)
-    const handleAppointmentsUpdate = () => {
-      loadAppointments();
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('kr-appointments-updated', handleAppointmentsUpdate);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('kr-appointments-updated', handleAppointmentsUpdate);
-    };
-  }, []);
-
-  // Load quotes from localStorage to get quote notes
-  useEffect(() => {
-    const loadQuotes = () => {
-      const savedQuotes = localStorage.getItem('kr-quotes');
-      if (savedQuotes) {
-        setQuotes(JSON.parse(savedQuotes));
-      }
-    };
-    loadQuotes();
-
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'kr-quotes') {
-        loadQuotes();
-      }
-    };
-
-    const handleQuotesUpdate = () => {
-      loadQuotes();
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('kr-quotes-updated', handleQuotesUpdate);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('kr-quotes-updated', handleQuotesUpdate);
-    };
-  }, []);
-
-  // Helper function to get time from matching calendar appointment
-  const getJobTime = (job: Job): string | undefined => {
-    if (job.scheduledTime) return job.scheduledTime;
-    // Look for matching appointment by customer name and date
-    const jobDate = format(new Date(job.scheduledDate), 'yyyy-MM-dd');
-    const matchingAppointment = appointments.find(apt =>
-      apt.customerName === job.customerName &&
-      format(new Date(apt.date), 'yyyy-MM-dd') === jobDate
-    );
-    return matchingAppointment?.time;
-  };
-
-  // Helper function to get appointment notes
-  const getAppointmentNotes = (job: Job): string | undefined => {
-    const jobDate = format(new Date(job.scheduledDate), 'yyyy-MM-dd');
-    const matchingAppointment = appointments.find(apt =>
-      apt.customerName === job.customerName &&
-      format(new Date(apt.date), 'yyyy-MM-dd') === jobDate
-    );
-    return matchingAppointment?.notes;
-  };
-
-  // Helper function to get quote notes
-  const getQuoteNotes = (job: Job): string | undefined => {
-    // Match by quoteId if available, otherwise match by customer name
-    if (job.quoteId) {
-      const matchingQuote = quotes.find(q => q.id === job.quoteId);
-      return matchingQuote?.notes;
-    }
-    // Fallback: match by customer name
-    const matchingQuote = quotes.find(q => q.customerName === job.customerName);
-    return matchingQuote?.notes;
-  };
 
   // Save jobs to localStorage whenever they change (after initial load)
   useEffect(() => {
     if (isInitialized) {
       localStorage.setItem('kr-jobs', JSON.stringify(jobs));
-      // Don't dispatch the event here - it causes infinite loops
-      // Only external components (QuotesTab) should dispatch this event
+      // Dispatch event to notify other components (including crew app)
+      window.dispatchEvent(new Event('kr-jobs-updated'));
     }
   }, [jobs, isInitialized]);
+
+  // Load customers
+  useEffect(() => {
+    const savedCustomers = localStorage.getItem('kr-customers');
+    if (savedCustomers) {
+      setCustomers(JSON.parse(savedCustomers));
+    }
+    
+    const handleCustomersUpdate = () => {
+      const updatedCustomers = localStorage.getItem('kr-customers');
+      if (updatedCustomers) {
+        setCustomers(JSON.parse(updatedCustomers));
+      }
+    };
+    
+    window.addEventListener('kr-customers-updated', handleCustomersUpdate);
+    return () => window.removeEventListener('kr-customers-updated', handleCustomersUpdate);
+  }, []);
+
+  // Load crew members
+  useEffect(() => {
+    const loadCrewMembers = () => {
+      const savedCrewMembers = localStorage.getItem('kr-crew-members');
+      if (savedCrewMembers) {
+        setCrewMembers(JSON.parse(savedCrewMembers));
+      }
+    };
+
+    loadCrewMembers();
+    
+    const handleCrewMembersUpdate = () => {
+      loadCrewMembers();
+    };
+    
+    window.addEventListener('kr-crew-members-updated', handleCrewMembersUpdate);
+    return () => window.removeEventListener('kr-crew-members-updated', handleCrewMembersUpdate);
+  }, []);
 
   const filteredJobs = filter === 'all' ? jobs : jobs.filter(job => job.status === filter);
 
@@ -239,29 +201,11 @@ export function JobsTab() {
       uploadedAt: new Date()
     };
 
-    setJobs(jobs.map(j =>
-      j.id === selectedJob.id
+    setJobs(jobs.map(j => 
+      j.id === selectedJob.id 
         ? { ...j, photos: [...j.photos, newPhoto] }
         : j
     ));
-  };
-
-  const handleDeletePhoto = (photoId: string) => {
-    if (!selectedJob) return;
-
-    // Update the jobs state to remove the photo
-    const updatedJobs = jobs.map(j =>
-      j.id === selectedJob.id
-        ? { ...j, photos: j.photos.filter(p => p.id !== photoId) }
-        : j
-    );
-    setJobs(updatedJobs);
-
-    // Also update the selectedJob to reflect the change in the dialog
-    setSelectedJob({
-      ...selectedJob,
-      photos: selectedJob.photos.filter(p => p.id !== photoId)
-    });
   };
 
   const handleDeleteJob = (jobId: string) => {
@@ -280,15 +224,63 @@ export function JobsTab() {
     }
   };
 
+  const handleEditJob = (job: Job) => {
+    setSelectedJob(job);
+    setEditingJob(job);
+    setEditJobForm({
+      customerName: job.customerName,
+      service: job.service,
+      address: job.address,
+      scheduledDate: format(new Date(job.scheduledDate), 'yyyy-MM-dd'), // Use format to ensure proper date
+      assignedCrew: job.assignedCrew,
+      status: job.status,
+      notes: job.notes
+    });
+    setIsEditDialogOpen(true);
+  };
+
+  const handleSaveEditJob = () => {
+    if (!editingJob) return;
+    
+    // Create a date at noon local time to avoid timezone issues
+    const [year, month, day] = editJobForm.scheduledDate.split('-').map(Number);
+    const scheduledDate = new Date(year, month - 1, day, 12, 0, 0).toISOString();
+    
+    const updatedJob: Job = {
+      ...editingJob,
+      customerName: editJobForm.customerName,
+      service: editJobForm.service,
+      address: editJobForm.address,
+      scheduledDate, // Use the properly constructed date
+      assignedCrew: editJobForm.assignedCrew,
+      status: editJobForm.status,
+      notes: editJobForm.notes
+    };
+
+    setJobs(jobs.map(j => j.id === editingJob.id ? updatedJob : j));
+    setIsEditDialogOpen(false);
+  };
+
+  const handleSendReminder = (jobId: string) => {
+    const job = jobs.find(j => j.id === jobId);
+    if (job) {
+      // Simulate sending a reminder
+      toast.success(`Reminder sent to ${job.customerName}`);
+      setJobs(jobs.map(j => j.id === jobId ? { ...j, reminderSent: true } : j));
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)} className="w-full max-w-md">
-          <TabsList className="grid grid-cols-4">
+        <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)} className="w-full max-w-2xl">
+          <TabsList className="grid grid-cols-6">
             <TabsTrigger value="all">All</TabsTrigger>
+            <TabsTrigger value="pending">Pending</TabsTrigger>
             <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
             <TabsTrigger value="in-progress">In Progress</TabsTrigger>
             <TabsTrigger value="completed">Completed</TabsTrigger>
+            <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -303,8 +295,15 @@ export function JobsTab() {
                   <p className="text-sm text-gray-500 mt-1">{job.id}</p>
                 </div>
                 <Badge
-                  variant={
+                  className={
                     job.status === 'completed'
+                      ? 'bg-green-600 hover:bg-green-700 text-white'
+                      : job.status === 'cancelled'
+                      ? 'bg-red-700 hover:bg-red-800 text-white'
+                      : ''
+                  }
+                  variant={
+                    job.status === 'completed' || job.status === 'cancelled'
                       ? 'default'
                       : job.status === 'in-progress'
                       ? 'secondary'
@@ -326,113 +325,12 @@ export function JobsTab() {
               <div className="flex items-center gap-2 text-sm text-gray-600">
                 <Calendar className="size-4" />
                 {format(new Date(job.scheduledDate), 'MMM d, yyyy')}
-                {getJobTime(job) && (
-                  <>
-                    <Clock className="size-4 ml-2" />
-                    {getJobTime(job)}
-                  </>
-                )}
               </div>
 
               <div className="text-sm">
-                <span className="text-gray-500">Technician: </span>
+                <span className="text-gray-500">Crew: </span>
                 <span className="font-medium">{job.assignedCrew}</span>
               </div>
-
-              {/* Notes Section */}
-              {(getAppointmentNotes(job) || getQuoteNotes(job) || job.notes) && (
-                <div className="space-y-2 border-t pt-3">
-                  {getAppointmentNotes(job) && (
-                    <div className="flex items-start gap-2 text-sm">
-                      <Calendar className="size-4 text-cyan-600 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <span className="text-gray-500 font-medium">Appointment: </span>
-                        <span className="text-gray-700">{getAppointmentNotes(job)}</span>
-                      </div>
-                    </div>
-                  )}
-                  {getQuoteNotes(job) && (
-                    <div className="flex items-start gap-2 text-sm">
-                      <FileText className="size-4 text-orange-600 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <span className="text-gray-500 font-medium">Quote: </span>
-                        <span className="text-gray-700">{getQuoteNotes(job)}</span>
-                      </div>
-                    </div>
-                  )}
-                  {job.notes && !getAppointmentNotes(job) && !getQuoteNotes(job) && (
-                    <div className="flex items-start gap-2 text-sm">
-                      <StickyNote className="size-4 text-gray-500 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <span className="text-gray-500 font-medium">Notes: </span>
-                        <span className="text-gray-700">{job.notes}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Photo Preview Section */}
-              {job.photos.length > 0 && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <ImageIcon className="size-4 text-gray-500" />
-                    <span className="text-sm text-gray-500">Photos ({job.photos.length})</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {/* Before Photos */}
-                    {job.photos.filter(p => p.type === 'before').length > 0 && (
-                      <div className="space-y-1">
-                        <span className="text-xs text-gray-400 uppercase">Before</span>
-                        <div className="flex gap-1">
-                          {job.photos
-                            .filter(p => p.type === 'before')
-                            .slice(0, 2)
-                            .map(photo => (
-                              <div key={photo.id} className="relative size-12 rounded overflow-hidden">
-                                <ImageWithFallback
-                                  src={photo.url}
-                                  alt="Before"
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
-                            ))}
-                          {job.photos.filter(p => p.type === 'before').length > 2 && (
-                            <div className="size-12 rounded bg-gray-100 flex items-center justify-center text-xs text-gray-500">
-                              +{job.photos.filter(p => p.type === 'before').length - 2}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    {/* After Photos */}
-                    {job.photos.filter(p => p.type === 'after').length > 0 && (
-                      <div className="space-y-1">
-                        <span className="text-xs text-gray-400 uppercase">After</span>
-                        <div className="flex gap-1">
-                          {job.photos
-                            .filter(p => p.type === 'after')
-                            .slice(0, 2)
-                            .map(photo => (
-                              <div key={photo.id} className="relative size-12 rounded overflow-hidden">
-                                <ImageWithFallback
-                                  src={photo.url}
-                                  alt="After"
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
-                            ))}
-                          {job.photos.filter(p => p.type === 'after').length > 2 && (
-                            <div className="size-12 rounded bg-gray-100 flex items-center justify-center text-xs text-gray-500">
-                              +{job.photos.filter(p => p.type === 'after').length - 2}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
 
               <div className="flex gap-2 items-center">
                 <Button
@@ -447,20 +345,6 @@ export function JobsTab() {
                   <ImageIcon className="size-4 mr-2" />
                   Photos ({job.photos.length})
                 </Button>
-                <Select
-                  value={job.status}
-                  onValueChange={(value: Job['status']) => handleStatusChange(job.id, value)}
-                >
-                  <SelectTrigger className="flex-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="scheduled">Scheduled</SelectItem>
-                    <SelectItem value="in-progress">In Progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                    <SelectItem value="cancelled">Cancelled</SelectItem>
-                  </SelectContent>
-                </Select>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
@@ -490,6 +374,26 @@ export function JobsTab() {
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => handleEditJob(job)}
+                >
+                  <Edit className="size-4 mr-2" />
+                  Edit
+                </Button>
+                {job.status === 'scheduled' && !job.reminderSent && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => handleSendReminder(job.id)}
+                  >
+                    <Bell className="size-4 mr-2" />
+                    Send Reminder
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -527,19 +431,12 @@ export function JobsTab() {
                   {selectedJob?.photos
                     .filter(p => p.type === 'before')
                     .map(photo => (
-                      <div key={photo.id} className="relative aspect-square group">
+                      <div key={photo.id} className="relative aspect-square">
                         <ImageWithFallback
                           src={photo.url}
                           alt="Before"
                           className="w-full h-full object-cover rounded-lg"
                         />
-                        <button
-                          onClick={() => handleDeletePhoto(photo.id)}
-                          className="absolute top-1 right-1 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Delete photo"
-                        >
-                          <X className="size-4" />
-                        </button>
                       </div>
                     ))}
                 </div>
@@ -564,25 +461,113 @@ export function JobsTab() {
                   {selectedJob?.photos
                     .filter(p => p.type === 'after')
                     .map(photo => (
-                      <div key={photo.id} className="relative aspect-square group">
+                      <div key={photo.id} className="relative aspect-square">
                         <ImageWithFallback
                           src={photo.url}
                           alt="After"
                           className="w-full h-full object-cover rounded-lg"
                         />
-                        <button
-                          onClick={() => handleDeletePhoto(photo.id)}
-                          className="absolute top-1 right-1 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Delete photo"
-                        >
-                          <X className="size-4" />
-                        </button>
                       </div>
                     ))}
                 </div>
               </div>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>
+              Edit Job - {editingJob?.customerName} ({editingJob?.id})
+            </DialogTitle>
+            <DialogDescription>
+              Update the details of the job.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Customer Name</Label>
+                <Input
+                  value={editJobForm.customerName}
+                  onChange={(e) => setEditJobForm({ ...editJobForm, customerName: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Address</Label>
+                <Input
+                  value={editJobForm.address}
+                  onChange={(e) => setEditJobForm({ ...editJobForm, address: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Scheduled Date</Label>
+                <Input
+                  type="date"
+                  value={editJobForm.scheduledDate}
+                  onChange={(e) => setEditJobForm({ ...editJobForm, scheduledDate: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Assigned Crew</Label>
+                <Select
+                  value={editJobForm.assignedCrew}
+                  onValueChange={(value) => setEditJobForm({ ...editJobForm, assignedCrew: value })}
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {crewMembers.map(member => (
+                      <SelectItem key={member.id} value={member.name}>{member.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select
+                  value={editJobForm.status}
+                  onValueChange={(value) => setEditJobForm({ ...editJobForm, status: value })}
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="scheduled">Scheduled</SelectItem>
+                    <SelectItem value="in-progress">In Progress</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 col-span-2">
+                <Label>Notes</Label>
+                <Textarea
+                  value={editJobForm.notes}
+                  onChange={(e) => setEditJobForm({ ...editJobForm, notes: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-1"
+              onClick={handleSaveEditJob}
+            >
+              Save
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

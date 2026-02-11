@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/app/components/ui/card';
 import { Button } from '@/app/components/ui/button';
 import { Badge } from '@/app/components/ui/badge';
@@ -10,7 +10,7 @@ import { Label } from '@/app/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/app/components/ui/select';
 import { Textarea } from '@/app/components/ui/textarea';
 import { Checkbox } from '@/app/components/ui/checkbox';
-import { Plus, FileText, DollarSign, Edit, Trash2, Calendar, Clock, Mail, X } from 'lucide-react';
+import { Plus, FileText, DollarSign, Edit, Trash2, Mail } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface Quote {
@@ -20,8 +20,6 @@ interface Quote {
   amount: number;
   status: 'pending' | 'approved' | 'rejected' | 'invoiced';
   date: string; // Changed to string for localStorage serialization
-  time?: string; // Scheduled time (e.g., "9:00 AM")
-  assignedCrew: string; // Crew assignment
   notes: string;
 }
 
@@ -33,7 +31,6 @@ const mockQuotes: Quote[] = [
     amount: 350,
     status: 'approved',
     date: new Date(2026, 0, 25).toISOString(),
-    assignedCrew: 'Team A',
     notes: 'Two-story home, 2500 sq ft'
   },
   {
@@ -43,7 +40,6 @@ const mockQuotes: Quote[] = [
     amount: 175,
     status: 'pending',
     date: new Date(2026, 0, 28).toISOString(),
-    assignedCrew: 'Team B',
     notes: 'Concrete driveway, 400 sq ft'
   },
   {
@@ -53,7 +49,6 @@ const mockQuotes: Quote[] = [
     amount: 225,
     status: 'approved',
     date: new Date(2026, 0, 29).toISOString(),
-    assignedCrew: 'Team A',
     notes: 'Wood deck, 300 sq ft'
   }
 ];
@@ -64,15 +59,12 @@ export function QuotesTab() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
   const [customers, setCustomers] = useState<any[]>([]);
-  const [appointments, setAppointments] = useState<any[]>([]);
   const [newQuote, setNewQuote] = useState({
     customerName: '',
     services: [] as string[],
     amount: '',
-    time: '',
     notes: ''
   });
-  const isSelfDispatching = useRef(false);
 
   // Available service options
   const availableServices = [
@@ -95,7 +87,7 @@ export function QuotesTab() {
     }));
   };
 
-  // Sync quotes with jobs - ensure all quotes have corresponding jobs
+  // Sync quotes with jobs - ensure all APPROVED quotes have corresponding jobs
   const syncQuotesWithJobs = (quotesToSync: Quote[]) => {
     const savedJobs = localStorage.getItem('kr-jobs');
     const existingJobs = savedJobs ? JSON.parse(savedJobs) : [];
@@ -104,26 +96,32 @@ export function QuotesTab() {
     const deletedJobs = localStorage.getItem('kr-deleted-jobs');
     const deletedJobsList = deletedJobs ? JSON.parse(deletedJobs) : [];
     
-    // Find quotes that don't have corresponding jobs AND haven't been deleted
+    // Find APPROVED quotes that don't have corresponding jobs AND haven't been deleted
     const quotesWithoutJobs = quotesToSync.filter(quote => 
+      quote.status === 'approved' &&
       !existingJobs.some((job: any) => job.quoteId === quote.id) &&
       !deletedJobsList.includes(quote.id)
     );
     
     if (quotesWithoutJobs.length > 0) {
+      // Get customer data for addresses
+      const savedCustomers = localStorage.getItem('kr-customers');
+      const customers = savedCustomers ? JSON.parse(savedCustomers) : [];
+      
       // Create jobs for quotes that don't have them
       const newJobs = quotesWithoutJobs.map((quote, index) => {
         const jobNumber = existingJobs.length + index + 1;
+        const customer = customers.find((c: any) => c.name === quote.customerName);
+        
         return {
           id: `J-${String(jobNumber).padStart(3, '0')}`,
           quoteId: quote.id,
           customerName: quote.customerName,
           service: quote.services.join(', '), // Join services array into a string
-          address: '',
+          address: customer?.address || '',
           scheduledDate: quote.date,
-          scheduledTime: quote.time,
           assignedCrew: 'Unassigned',
-          status: 'scheduled',
+          status: 'pending',
           photos: [],
           notes: quote.notes
         };
@@ -137,53 +135,41 @@ export function QuotesTab() {
     }
   };
 
-  // Load quotes from localStorage
-  const loadQuotes = () => {
-    const savedQuotes = localStorage.getItem('kr-quotes');
-    if (savedQuotes) {
-      const loadedQuotes = JSON.parse(savedQuotes);
-      // Migrate old quotes from service (string) to services (array) and add assignedCrew
-      const migratedQuotes = loadedQuotes.map((quote: any) => {
-        let migrated = { ...quote };
-        if (quote.service && !quote.services) {
-          migrated = {
-            ...migrated,
-            services: [quote.service],
-            service: undefined
-          };
-        }
-        // Add assignedCrew if missing
-        if (!migrated.assignedCrew) {
-          migrated.assignedCrew = 'Unassigned';
-        }
-        return migrated;
-      });
-      setQuotes(migratedQuotes);
-      return migratedQuotes;
-    }
-    return null;
-  };
-
   // Load quotes from localStorage on component mount
   useEffect(() => {
-    const loaded = loadQuotes();
-    if (loaded) {
-      // Save migrated quotes back to localStorage
-      localStorage.setItem('kr-quotes', JSON.stringify(loaded));
-      // Sync all existing quotes with jobs
-      syncQuotesWithJobs(loaded);
-    } else {
-      // Initialize with mock data if no saved data exists
-      setQuotes(mockQuotes);
-      localStorage.setItem('kr-quotes', JSON.stringify(mockQuotes));
-      // Sync mock quotes with jobs
-      syncQuotesWithJobs(mockQuotes);
-    }
+    const loadQuotes = () => {
+      const savedQuotes = localStorage.getItem('kr-quotes');
+      if (savedQuotes) {
+        const loadedQuotes = JSON.parse(savedQuotes);
+        // Migrate old quotes from service (string) to services (array)
+        const migratedQuotes = loadedQuotes.map((quote: any) => {
+          if (quote.service && !quote.services) {
+            return {
+              ...quote,
+              services: [quote.service],
+              service: undefined
+            };
+          }
+          return quote;
+        });
+        setQuotes(migratedQuotes);
+        // Save migrated quotes back to localStorage
+        localStorage.setItem('kr-quotes', JSON.stringify(migratedQuotes));
+        // Sync all existing quotes with jobs
+        syncQuotesWithJobs(migratedQuotes);
+      } else {
+        // Initialize with mock data if no saved data exists
+        setQuotes(mockQuotes);
+        localStorage.setItem('kr-quotes', JSON.stringify(mockQuotes));
+        // Sync mock quotes with jobs
+        syncQuotesWithJobs(mockQuotes);
+      }
+    };
 
-    // Listen for quote updates from other components (e.g., CalendarTab)
-    // Skip self-dispatched events to avoid feedback loop
+    loadQuotes();
+
+    // Listen for quote updates from other components (e.g., invoices)
     const handleQuotesUpdate = () => {
-      if (isSelfDispatching.current) return;
       loadQuotes();
     };
 
@@ -210,108 +196,19 @@ export function QuotesTab() {
     return () => window.removeEventListener('kr-customers-updated', handleCustomersUpdate);
   }, []);
 
-  // Load appointments from localStorage
-  useEffect(() => {
-    const loadAppointments = () => {
-      const savedAppointments = localStorage.getItem('kr-appointments');
-      if (savedAppointments) {
-        setAppointments(JSON.parse(savedAppointments));
-      }
-    };
-    loadAppointments();
-
-    // Listen for appointment updates from storage events
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'kr-appointments') {
-        loadAppointments();
-      }
-    };
-
-    // Listen for appointment updates from custom events
-    const handleAppointmentsUpdate = () => {
-      loadAppointments();
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('kr-appointments-updated', handleAppointmentsUpdate);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('kr-appointments-updated', handleAppointmentsUpdate);
-    };
-  }, []);
-
-  // Get appointments for a customer
-  const getCustomerAppointments = (customerName: string) => {
-    return appointments.filter(apt => apt.customerName === customerName);
-  };
-
-  // Get services from calendar appointments for a customer
-  const getCustomerServicesFromAppointments = (customerName: string): string[] => {
-    const customerAppointments = getCustomerAppointments(customerName);
-    const allServices = customerAppointments.flatMap(apt => apt.services || []);
-    // Return unique services
-    return [...new Set(allServices)];
-  };
-
-  // Delete appointment from localStorage and update state
-  const handleDeleteAppointment = (appointmentId: string) => {
-    const savedAppointments = localStorage.getItem('kr-appointments');
-    if (savedAppointments) {
-      const allAppointments = JSON.parse(savedAppointments);
-      const updatedAppointments = allAppointments.filter((apt: any) => apt.id !== appointmentId);
-      localStorage.setItem('kr-appointments', JSON.stringify(updatedAppointments));
-      setAppointments(updatedAppointments);
-      window.dispatchEvent(new Event('kr-appointments-updated'));
-    }
-  };
-
-  // Get customer email by name
-  const getCustomerEmail = (customerName: string): string => {
-    const customer = customers.find(c => c.name === customerName);
-    return customer?.email || '';
-  };
-
-  // Generate mailto link for emailing quote to customer
-  const handleEmailQuote = (quote: Quote) => {
-    const customerEmail = getCustomerEmail(quote.customerName);
-    const subject = encodeURIComponent(`Quote ${quote.id} from K&R Powerwashing`);
-    const body = encodeURIComponent(
-`Dear ${quote.customerName},
-
-Thank you for your interest in K&R Powerwashing services. Please find your quote details below:
-
-Quote ID: ${quote.id}
-Date: ${format(new Date(quote.date), 'MMMM d, yyyy')}
-Services: ${quote.services.join(', ')}
-Amount: $${quote.amount.toLocaleString()}
-
-${quote.notes ? `Notes: ${quote.notes}\n\n` : ''}This quote is valid for 30 days.
-
-If you have any questions or would like to proceed, please don't hesitate to contact us.
-
-Best regards,
-K&R Powerwashing Team`
-    );
-    const mailtoLink = `mailto:${customerEmail}?subject=${subject}&body=${body}`;
-    window.open(mailtoLink, '_blank');
-  };
-
   // Save quotes to localStorage whenever they change
-  // Note: Do NOT dispatch kr-quotes-updated here to avoid a feedback loop
   useEffect(() => {
     // Only save if we've loaded quotes (avoid saving empty array on initial render)
     if (quotes.length > 0 || localStorage.getItem('kr-quotes')) {
       localStorage.setItem('kr-quotes', JSON.stringify(quotes));
+      // Don't dispatch event here to avoid infinite loop
+      // Events should only be dispatched when quotes are modified by user actions
     }
   }, [quotes]);
 
   const handleAddQuote = () => {
     // Generate a unique ID based on timestamp
     const quoteNumber = quotes.length + 1;
-    // Pull crew assignment from the customer's appointment if available
-    const customerAppts = getCustomerAppointments(newQuote.customerName);
-    const crewFromAppointment = customerAppts.length > 0 ? customerAppts[0].assignedCrew || 'Unassigned' : 'Unassigned';
     const quote: Quote = {
       id: `Q-${String(quoteNumber).padStart(3, '0')}`,
       customerName: newQuote.customerName,
@@ -319,35 +216,34 @@ K&R Powerwashing Team`
       amount: parseFloat(newQuote.amount),
       status: 'pending',
       date: new Date().toISOString(),
-      time: newQuote.time || undefined,
-      assignedCrew: crewFromAppointment,
       notes: newQuote.notes
     };
-    const updatedQuotes = [...quotes, quote];
-    setQuotes(updatedQuotes);
-
-    // Save immediately and notify other components
-    localStorage.setItem('kr-quotes', JSON.stringify(updatedQuotes));
-    isSelfDispatching.current = true;
-    window.dispatchEvent(new Event('kr-quotes-updated'));
-    isSelfDispatching.current = false;
-
-    // Create a corresponding job entry
+    setQuotes([...quotes, quote]);
+    
+    // CREATE JOB IMMEDIATELY with "pending" status
     const savedJobs = localStorage.getItem('kr-jobs');
     const existingJobs = savedJobs ? JSON.parse(savedJobs) : [];
     const jobNumber = existingJobs.length + 1;
     const jobId = `J-${String(jobNumber).padStart(3, '0')}`;
-
+    
+    // Get customer address if available
+    const savedCustomers = localStorage.getItem('kr-customers');
+    const customers = savedCustomers ? JSON.parse(savedCustomers) : [];
+    const customer = customers.find((c: any) => c.name === newQuote.customerName);
+    
+    // Create a date at noon local time to avoid timezone issues
+    const today = new Date();
+    const scheduledDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0).toISOString();
+    
     const newJob = {
       id: jobId,
       quoteId: quote.id,
       customerName: newQuote.customerName,
       service: newQuote.services.join(', '),
-      address: '',
-      scheduledDate: new Date().toISOString(),
-      scheduledTime: newQuote.time || undefined,
-      assignedCrew: crewFromAppointment,
-      status: 'scheduled',
+      address: customer?.address || '',
+      scheduledDate,
+      assignedCrew: 'Unassigned',
+      status: 'pending', // Start as pending
       photos: [],
       notes: newQuote.notes
     };
@@ -358,28 +254,9 @@ K&R Powerwashing Team`
     // Dispatch custom event to notify Jobs tab
     window.dispatchEvent(new Event('kr-jobs-updated'));
     
-    // Create a corresponding invoice entry
-    const savedInvoices = localStorage.getItem('kr-invoices');
-    const existingInvoices = savedInvoices ? JSON.parse(savedInvoices) : [];
-    const invoiceNumber = existingInvoices.length + 1;
-    const invoiceId = `INV-${String(invoiceNumber).padStart(3, '0')}`;
+    // NOTE: Invoice will be created when quote is approved, not here
     
-    const newInvoice = {
-      id: invoiceId,
-      customerName: newQuote.customerName,
-      service: newQuote.services.join(', '), // Join services array into a string
-      amount: parseFloat(newQuote.amount),
-      status: 'pending',
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
-    };
-    
-    // Save invoice to localStorage
-    localStorage.setItem('kr-invoices', JSON.stringify([...existingInvoices, newInvoice]));
-    
-    // Dispatch custom event to notify Invoices tab
-    window.dispatchEvent(new Event('kr-invoices-updated'));
-    
-    setNewQuote({ customerName: '', services: [] as string[], amount: '', time: '', notes: '' });
+    setNewQuote({ customerName: '', services: [] as string[], amount: '', notes: '' });
     setIsDialogOpen(false);
   };
 
@@ -392,58 +269,13 @@ K&R Powerwashing Team`
               customerName: newQuote.customerName,
               services: newQuote.services,
               amount: parseFloat(newQuote.amount),
-              time: newQuote.time || undefined,
               notes: newQuote.notes
             }
           : q
       );
       setQuotes(updatedQuotes);
-
-      // Save immediately and notify other components
-      localStorage.setItem('kr-quotes', JSON.stringify(updatedQuotes));
-      isSelfDispatching.current = true;
-      window.dispatchEvent(new Event('kr-quotes-updated'));
-      isSelfDispatching.current = false;
-
-      // Sync changes to corresponding job
-      const savedJobs = localStorage.getItem('kr-jobs');
-      if (savedJobs) {
-        const jobs = JSON.parse(savedJobs);
-        const updatedJobs = jobs.map((job: any) =>
-          job.quoteId === editingQuote.id
-            ? {
-                ...job,
-                customerName: newQuote.customerName,
-                service: newQuote.services.join(', '),
-                scheduledTime: newQuote.time || undefined,
-                notes: newQuote.notes
-              }
-            : job
-        );
-        localStorage.setItem('kr-jobs', JSON.stringify(updatedJobs));
-        window.dispatchEvent(new Event('kr-jobs-updated'));
-      }
-
-      // Sync changes to corresponding invoice
-      const savedInvoices = localStorage.getItem('kr-invoices');
-      if (savedInvoices) {
-        const invoices = JSON.parse(savedInvoices);
-        const updatedInvoices = invoices.map((inv: any) =>
-          inv.customerName === editingQuote.customerName
-            ? {
-                ...inv,
-                customerName: newQuote.customerName,
-                service: newQuote.services.join(', '),
-                amount: parseFloat(newQuote.amount)
-              }
-            : inv
-        );
-        localStorage.setItem('kr-invoices', JSON.stringify(updatedInvoices));
-        window.dispatchEvent(new Event('kr-invoices-updated'));
-      }
-
       setEditingQuote(null);
-      setNewQuote({ customerName: '', services: [] as string[], amount: '', time: '', notes: '' });
+      setNewQuote({ customerName: '', services: [] as string[], amount: '', notes: '' });
       setIsEditDialogOpen(false);
     }
   };
@@ -454,7 +286,6 @@ K&R Powerwashing Team`
       customerName: quote.customerName,
       services: quote.services,
       amount: quote.amount.toString(),
-      time: quote.time || '',
       notes: quote.notes
     });
     setIsEditDialogOpen(true);
@@ -463,88 +294,167 @@ K&R Powerwashing Team`
   const handleDeleteQuote = (quote: Quote) => {
     const updatedQuotes = quotes.filter((q) => q.id !== quote.id);
     setQuotes(updatedQuotes);
+  };
 
-    // Save immediately and notify other components
-    localStorage.setItem('kr-quotes', JSON.stringify(updatedQuotes));
-    isSelfDispatching.current = true;
-    window.dispatchEvent(new Event('kr-quotes-updated'));
-    isSelfDispatching.current = false;
-
-    // Delete corresponding job
-    const savedJobs = localStorage.getItem('kr-jobs');
-    if (savedJobs) {
-      const jobs = JSON.parse(savedJobs);
-      const updatedJobs = jobs.filter((job: any) => job.quoteId !== quote.id);
-      localStorage.setItem('kr-jobs', JSON.stringify(updatedJobs));
-      window.dispatchEvent(new Event('kr-jobs-updated'));
+  const handleOpenEmailDialog = (quote: Quote) => {
+    // Get customer email
+    const customer = customers.find(c => c.name === quote.customerName);
+    const customerEmail = customer?.email || '';
+    
+    if (!customerEmail) {
+      alert('No email address found for this customer. Please update customer information.');
+      return;
     }
+    
+    // Create email content
+    const subject = `Quote ${quote.id} from K&R POWERWASHING`;
+    const message = `Dear ${quote.customerName},
 
-    // Track deleted job quote IDs to prevent recreation by syncQuotesWithJobs
-    const deletedJobs = localStorage.getItem('kr-deleted-jobs');
-    const deletedJobsList = deletedJobs ? JSON.parse(deletedJobs) : [];
-    deletedJobsList.push(quote.id);
-    localStorage.setItem('kr-deleted-jobs', JSON.stringify(deletedJobsList));
+Thank you for your interest in K&R POWERWASHING. Please find your quote details below:
 
-    // Delete corresponding invoice
-    const savedInvoices = localStorage.getItem('kr-invoices');
-    if (savedInvoices) {
-      const invoices = JSON.parse(savedInvoices);
-      const updatedInvoices = invoices.filter((inv: any) => inv.customerName !== quote.customerName || inv.service !== quote.services.join(', '));
-      localStorage.setItem('kr-invoices', JSON.stringify(updatedInvoices));
-      window.dispatchEvent(new Event('kr-invoices-updated'));
-    }
+Quote ID: ${quote.id}
+Date: ${format(new Date(quote.date), 'MMMM d, yyyy')}
+
+Services:
+${quote.services.map(s => `• ${s}`).join('\n')}
+
+Total Amount: $${quote.amount.toLocaleString()}
+
+${quote.notes ? `Notes:\n${quote.notes}` : ''}
+
+We look forward to serving you!
+
+Best regards,
+K&R POWERWASHING Team`;
+    
+    // Create mailto link and open email client
+    const mailtoLink = `mailto:${customerEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+    window.location.href = mailtoLink;
   };
 
   const handleStatusChange = (quoteId: string, newStatus: Quote['status']) => {
+    // Get the quote being updated
+    const quote = quotes.find(q => q.id === quoteId);
+    if (!quote) return;
+    
+    // Update quote status
     const updatedQuotes = quotes.map(q => q.id === quoteId ? { ...q, status: newStatus } : q);
     setQuotes(updatedQuotes);
-
-    // Save immediately and notify other components
-    localStorage.setItem('kr-quotes', JSON.stringify(updatedQuotes));
-    isSelfDispatching.current = true;
-    window.dispatchEvent(new Event('kr-quotes-updated'));
-    isSelfDispatching.current = false;
-
-    // Map quote status to job status
-    const jobStatusMap: Record<string, string> = {
-      'pending': 'scheduled',
-      'approved': 'scheduled',
-      'rejected': 'cancelled',
-      'invoiced': 'completed'
-    };
-
-    // Sync status change to corresponding job
-    const savedJobs = localStorage.getItem('kr-jobs');
-    if (savedJobs) {
-      const jobs = JSON.parse(savedJobs);
-      const updatedJobs = jobs.map((job: any) =>
-        job.quoteId === quoteId
-          ? { ...job, status: jobStatusMap[newStatus] || job.status }
-          : job
-      );
-      localStorage.setItem('kr-jobs', JSON.stringify(updatedJobs));
-      window.dispatchEvent(new Event('kr-jobs-updated'));
-    }
-
-    // Sync status change to corresponding invoice
-    const savedInvoices = localStorage.getItem('kr-invoices');
-    if (savedInvoices) {
-      const quote = quotes.find(q => q.id === quoteId);
-      if (quote) {
-        const invoiceStatusMap: Record<string, string> = {
-          'pending': 'pending',
-          'approved': 'pending',
-          'rejected': 'cancelled',
-          'invoiced': 'paid'
+    
+    // When quote is approved, update the job status from "pending" to "scheduled" AND create invoice
+    if (newStatus === 'approved') {
+      console.log('=== QUOTE APPROVED ===');
+      console.log('Quote ID:', quoteId);
+      console.log('Quote:', quote);
+      
+      const savedJobs = localStorage.getItem('kr-jobs');
+      const existingJobs = savedJobs ? JSON.parse(savedJobs) : [];
+      
+      console.log('All jobs in localStorage:', existingJobs);
+      
+      // Find the job associated with this quote
+      const jobIndex = existingJobs.findIndex((job: any) => job.quoteId === quoteId);
+      
+      console.log('Job index found:', jobIndex);
+      
+      if (jobIndex !== -1) {
+        console.log('Found job! Updating status to scheduled...');
+        console.log('Job before update:', existingJobs[jobIndex]);
+        
+        // Update the job status to "scheduled"
+        existingJobs[jobIndex].status = 'scheduled';
+        
+        console.log('Job after update:', existingJobs[jobIndex]);
+        
+        // Save updated jobs to localStorage
+        localStorage.setItem('kr-jobs', JSON.stringify(existingJobs));
+        
+        console.log('Saved to localStorage. Dispatching events...');
+        
+        // Force a small delay to ensure localStorage is written
+        setTimeout(() => {
+          // Dispatch events to notify Jobs tab and Calendar tab
+          window.dispatchEvent(new Event('kr-jobs-updated'));
+          window.dispatchEvent(new StorageEvent('storage', {
+            key: 'kr-jobs',
+            newValue: JSON.stringify(existingJobs),
+            url: window.location.href
+          }));
+          console.log('Events dispatched!');
+        }, 100);
+      } else {
+        console.log('No job found. Creating new job with scheduled status...');
+        
+        // If job doesn't exist, create it now
+        const savedCustomers = localStorage.getItem('kr-customers');
+        const customers = savedCustomers ? JSON.parse(savedCustomers) : [];
+        const customer = customers.find((c: any) => c.name === quote.customerName);
+        
+        const jobNumber = existingJobs.length + 1;
+        const newJob = {
+          id: `J-${String(jobNumber).padStart(3, '0')}`,
+          quoteId: quoteId,
+          customerName: quote.customerName,
+          service: quote.services.join(', '),
+          address: customer?.address || '',
+          scheduledDate: quote.date,
+          assignedCrew: 'Unassigned',
+          status: 'scheduled', // Set directly to scheduled since quote is approved
+          photos: [],
+          notes: quote.notes
         };
-        const invoices = JSON.parse(savedInvoices);
-        const updatedInvoices = invoices.map((inv: any) =>
-          inv.customerName === quote.customerName && inv.service === quote.services.join(', ')
-            ? { ...inv, status: invoiceStatusMap[newStatus] || inv.status }
-            : inv
-        );
-        localStorage.setItem('kr-invoices', JSON.stringify(updatedInvoices));
+        
+        console.log('New job created:', newJob);
+        
+        const updatedJobs = [...existingJobs, newJob];
+        localStorage.setItem('kr-jobs', JSON.stringify(updatedJobs));
+        
+        console.log('Saved to localStorage. Dispatching events...');
+        
+        // Force a small delay to ensure localStorage is written
+        setTimeout(() => {
+          // Dispatch events
+          window.dispatchEvent(new Event('kr-jobs-updated'));
+          window.dispatchEvent(new StorageEvent('storage', {
+            key: 'kr-jobs',
+            newValue: JSON.stringify(updatedJobs),
+            url: window.location.href
+          }));
+          console.log('Events dispatched!');
+        }, 100);
+      }
+      
+      // CREATE INVOICE when quote is approved
+      const savedInvoices = localStorage.getItem('kr-invoices');
+      const existingInvoices = savedInvoices ? JSON.parse(savedInvoices) : [];
+      
+      // Check if invoice already exists for this quote
+      const invoiceExists = existingInvoices.some((inv: any) => inv.quoteId === quoteId);
+      
+      if (!invoiceExists) {
+        const invoiceNumber = existingInvoices.length + 1;
+        const invoiceId = `INV-${String(invoiceNumber).padStart(3, '0')}`;
+        
+        const newInvoice = {
+          id: invoiceId,
+          quoteId: quoteId, // Link invoice to quote
+          customerName: quote.customerName,
+          service: quote.services.join(', '),
+          amount: quote.amount,
+          status: 'pending',
+          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
+          quickbooksSynced: false
+        };
+        
+        // Save invoice to localStorage
+        localStorage.setItem('kr-invoices', JSON.stringify([...existingInvoices, newInvoice]));
+        
+        // Dispatch custom event to notify Invoices tab
         window.dispatchEvent(new Event('kr-invoices-updated'));
+        
+        console.log('Invoice created for approved quote:', quoteId);
+      } else {
+        console.log('Invoice already exists for quote:', quoteId);
       }
     }
   };
@@ -621,12 +531,7 @@ K&R Powerwashing Team`
                 <Label htmlFor="customerName">Customer Name</Label>
                 <Select
                   value={newQuote.customerName}
-                  onValueChange={(value) => {
-                    const services = getCustomerServicesFromAppointments(value);
-                    const customerAppts = getCustomerAppointments(value);
-                    const time = customerAppts.length > 0 ? customerAppts[0].time || '' : '';
-                    setNewQuote({ ...newQuote, customerName: value, services, time });
-                  }}
+                  onValueChange={(value) => setNewQuote({ ...newQuote, customerName: value })}
                 >
                   <SelectTrigger id="customerName">
                     <SelectValue placeholder="Select a customer" />
@@ -640,72 +545,35 @@ K&R Powerwashing Team`
                   </SelectContent>
                 </Select>
               </div>
-              {newQuote.customerName && getCustomerAppointments(newQuote.customerName).length > 0 && (
-                <div>
-                  <Label>Scheduled Appointments (from Calendar)</Label>
-                  <div className="mt-2 space-y-2 max-h-40 overflow-y-auto">
-                    {getCustomerAppointments(newQuote.customerName).map((apt, index) => (
-                      <div key={apt.id || index} className="p-3 bg-gray-50 rounded-md border text-sm relative group">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 text-gray-700 font-medium">
-                            <Calendar className="size-4" />
-                            {format(new Date(apt.date), 'MMM d, yyyy')}
-                            {apt.time && (
-                              <>
-                                <Clock className="size-4 ml-2" />
-                                {apt.time}
-                              </>
-                            )}
-                          </div>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <button
-                                className="p-1 rounded-full hover:bg-red-100 text-gray-400 hover:text-red-500 transition-colors"
-                                title="Delete appointment"
-                              >
-                                <X className="size-4" />
-                              </button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Delete Appointment?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  This will permanently delete the appointment for {apt.customerName} on {format(new Date(apt.date), 'MMM d, yyyy')}.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleDeleteAppointment(apt.id)}
-                                  className="bg-red-500 hover:bg-red-600"
-                                >
-                                  Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {(apt.services || []).map((service: string) => (
-                            <Badge key={service} variant="secondary" className="text-xs">
-                              {service}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
+              <div>
+                <Label htmlFor="service">Service Type (Select one or more)</Label>
+                <div className="space-y-3 border rounded-md p-4 max-h-48 overflow-y-auto bg-gray-50">
+                  {availableServices.map(service => (
+                    <div key={service} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`service-${service}`}
+                        checked={newQuote.services.includes(service)}
+                        onCheckedChange={() => toggleService(service)}
+                      />
+                      <label
+                        htmlFor={`service-${service}`}
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                      >
+                        {service}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+                {newQuote.services.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {newQuote.services.map(service => (
+                      <Badge key={service} variant="secondary" className="text-xs">
+                        {service}
+                      </Badge>
                     ))}
                   </div>
-                </div>
-              )}
-              {newQuote.time && (
-                <div>
-                  <Label>Scheduled Time</Label>
-                  <div className="flex items-center gap-2 mt-2 p-3 bg-green-50 rounded-md border border-green-200">
-                    <Clock className="size-4 text-green-600" />
-                    <span className="font-medium text-green-700">{newQuote.time}</span>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
               <div>
                 <Label htmlFor="amount">Amount ($)</Label>
                 <Input
@@ -759,6 +627,35 @@ K&R Powerwashing Team`
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div>
+                <Label htmlFor="edit-service">Service Type (Select one or more)</Label>
+                <div className="space-y-3 border rounded-md p-4 max-h-48 overflow-y-auto bg-gray-50">
+                  {availableServices.map(service => (
+                    <div key={service} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`service-${service}`}
+                        checked={newQuote.services.includes(service)}
+                        onCheckedChange={() => toggleService(service)}
+                      />
+                      <label
+                        htmlFor={`service-${service}`}
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                      >
+                        {service}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+                {newQuote.services.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {newQuote.services.map(service => (
+                      <Badge key={service} variant="secondary" className="text-xs">
+                        {service}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <Label htmlFor="edit-amount">Amount ($)</Label>
@@ -845,16 +742,7 @@ K&R Powerwashing Team`
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => handleEmailQuote(quote)}
-                      title="Email quote to customer"
-                    >
-                      <Mail className="size-4 text-green-600" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
                       onClick={() => handleOpenEditDialog(quote)}
-                      title="Edit quote"
                     >
                       <Edit className="size-4" />
                     </Button>
@@ -881,6 +769,13 @@ K&R Powerwashing Team`
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleOpenEmailDialog(quote)}
+                    >
+                      <Mail className="size-4" />
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>

@@ -2,23 +2,12 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { Input } from '@/app/components/ui/input';
 import { Label } from '@/app/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/app/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/app/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/app/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/app/components/ui/table';
 import { Badge } from '@/app/components/ui/badge';
-import { Search, Plus, Phone, Mail, MapPin, Edit, Trash2, Users, DollarSign, Briefcase, TrendingUp, AlertCircle } from 'lucide-react';
-
-// Format phone number to NANP format: (XXX) XXX-XXXX
-function formatPhoneNANP(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  // Handle 11 digits starting with 1 (country code)
-  const normalized = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
-  if (normalized.length === 10) {
-    return `(${normalized.slice(0, 3)}) ${normalized.slice(3, 6)}-${normalized.slice(6)}`;
-  }
-  return phone; // Return original if can't format
-}
+import { Search, Plus, Phone, Mail, MapPin, Edit, Trash2, Send, Archive, RotateCcw } from 'lucide-react';
+import { YearlyRemindersBanner } from '@/app/components/yearly-reminders-banner';
 
 // Customer management component with edit, delete, and email functionality
 export interface Customer {
@@ -70,15 +59,21 @@ export function CustomersTab() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isArchivedDialogOpen, setIsArchivedDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [quotes, setQuotes] = useState<any[]>([]);
-  const [jobs, setJobs] = useState<any[]>([]);
-  const [invoices, setInvoices] = useState<any[]>([]);
+  const [archivedCustomers, setArchivedCustomers] = useState<Customer[]>([]);
   const [newCustomer, setNewCustomer] = useState({
     name: '',
     email: '',
     phone: '',
     address: ''
+  });
+  const [addressParts, setAddressParts] = useState({
+    street: '',
+    city: '',
+    state: '',
+    zip: ''
   });
 
   // Load customers from localStorage on component mount
@@ -91,36 +86,40 @@ export function CustomersTab() {
       setCustomers(mockCustomers);
       localStorage.setItem('kr-customers', JSON.stringify(mockCustomers));
     }
+
+    // Load archived customers
+    const savedArchivedCustomers = localStorage.getItem('kr-archived-customers');
+    if (savedArchivedCustomers) {
+      setArchivedCustomers(JSON.parse(savedArchivedCustomers));
+    }
   }, []);
 
-  // Load quotes, jobs, and invoices for dashboard stats
+  // Load quotes to calculate dynamic job counts
   useEffect(() => {
-    const loadData = () => {
+    const loadQuotes = () => {
       const savedQuotes = localStorage.getItem('kr-quotes');
-      if (savedQuotes) setQuotes(JSON.parse(savedQuotes));
+      if (savedQuotes) {
+        setQuotes(JSON.parse(savedQuotes));
+      }
+    };
+    
+    loadQuotes();
 
-      const savedJobs = localStorage.getItem('kr-jobs');
-      if (savedJobs) setJobs(JSON.parse(savedJobs));
-
-      const savedInvoices = localStorage.getItem('kr-invoices');
-      if (savedInvoices) setInvoices(JSON.parse(savedInvoices));
+    // Listen for quote updates
+    const handleQuotesUpdate = () => {
+      loadQuotes();
     };
 
-    loadData();
-
-    // Listen for updates
-    const handleUpdate = () => loadData();
-
-    window.addEventListener('storage', handleUpdate);
-    window.addEventListener('kr-quotes-updated', handleUpdate);
-    window.addEventListener('kr-jobs-updated', handleUpdate);
-    window.addEventListener('kr-invoices-updated', handleUpdate);
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'kr-quotes') {
+        loadQuotes();
+      }
+    });
+    window.addEventListener('kr-quotes-updated', handleQuotesUpdate);
 
     return () => {
-      window.removeEventListener('storage', handleUpdate);
-      window.removeEventListener('kr-quotes-updated', handleUpdate);
-      window.removeEventListener('kr-jobs-updated', handleUpdate);
-      window.removeEventListener('kr-invoices-updated', handleUpdate);
+      window.removeEventListener('storage', loadQuotes);
+      window.removeEventListener('kr-quotes-updated', handleQuotesUpdate);
     };
   }, []);
 
@@ -141,24 +140,28 @@ export function CustomersTab() {
   );
 
   const handleAddCustomer = () => {
+    // Combine address parts into a single string
+    const fullAddress = `${addressParts.street}, ${addressParts.city}, ${addressParts.state} ${addressParts.zip}`;
+    
     // Generate a unique ID based on timestamp and random number
     const customer: Customer = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       ...newCustomer,
-      phone: formatPhoneNANP(newCustomer.phone),
+      address: fullAddress,
       status: 'active',
       totalJobs: 0,
       totalSpent: 0
     };
     setCustomers([...customers, customer]);
     setNewCustomer({ name: '', email: '', phone: '', address: '' });
+    setAddressParts({ street: '', city: '', state: '', zip: '' });
     setIsDialogOpen(false);
   };
 
   const handleEditCustomer = () => {
     if (editingCustomer) {
       const updatedCustomers = customers.map(customer =>
-        customer.id === editingCustomer.id ? { ...customer, ...newCustomer, phone: formatPhoneNANP(newCustomer.phone) } : customer
+        customer.id === editingCustomer.id ? { ...customer, ...newCustomer } : customer
       );
       setCustomers(updatedCustomers);
       setEditingCustomer(null);
@@ -167,9 +170,42 @@ export function CustomersTab() {
     }
   };
 
-  const handleDeleteCustomer = (id: string) => {
-    const updatedCustomers = customers.filter(customer => customer.id !== id);
+  const handleArchiveCustomer = (customer: Customer) => {
+    // Add timestamp to archived customer
+    const archivedCustomer = {
+      ...customer,
+      archivedDate: new Date().toISOString()
+    };
+    
+    // Add to archived customers
+    const updatedArchivedCustomers = [...archivedCustomers, archivedCustomer];
+    setArchivedCustomers(updatedArchivedCustomers);
+    localStorage.setItem('kr-archived-customers', JSON.stringify(updatedArchivedCustomers));
+    
+    // Remove from active customers
+    const updatedCustomers = customers.filter(c => c.id !== customer.id);
     setCustomers(updatedCustomers);
+  };
+
+  const handleRestoreCustomer = (archivedCustomer: any) => {
+    // Remove archivedDate field before restoring
+    const { archivedDate, ...customerData } = archivedCustomer;
+    
+    // Add back to active customers
+    const updatedCustomers = [...customers, customerData as Customer];
+    setCustomers(updatedCustomers);
+    
+    // Remove from archived customers
+    const updatedArchivedCustomers = archivedCustomers.filter(c => c.id !== archivedCustomer.id);
+    setArchivedCustomers(updatedArchivedCustomers);
+    localStorage.setItem('kr-archived-customers', JSON.stringify(updatedArchivedCustomers));
+  };
+
+  const handlePermanentDelete = (archivedCustomer: any) => {
+    // Permanently remove from archived customers
+    const updatedArchivedCustomers = archivedCustomers.filter(c => c.id !== archivedCustomer.id);
+    setArchivedCustomers(updatedArchivedCustomers);
+    localStorage.setItem('kr-archived-customers', JSON.stringify(updatedArchivedCustomers));
   };
 
   // Helper function to get customer stats from quotes
@@ -181,95 +217,62 @@ export function CustomersTab() {
     };
   };
 
-  // Calculate dashboard stats
-  const totalCustomers = customers.length;
-  const activeCustomers = customers.filter(c => c.status === 'active').length;
-  const completedJobs = jobs.filter(j => j.status === 'completed').length;
-  const paidInvoices = invoices.filter(i => i.status === 'paid');
-  const totalRevenue = paidInvoices.reduce((sum, i) => sum + (i.amount || 0), 0);
-  const pendingInvoices = invoices.filter(i => i.status === 'sent' || i.status === 'draft' || i.status === 'pending');
-  const pendingRevenue = pendingInvoices.reduce((sum, i) => sum + (i.amount || 0), 0);
-  const overdueInvoices = invoices.filter(i => i.status === 'overdue');
-  const overdueRevenue = overdueInvoices.reduce((sum, i) => sum + (i.amount || 0), 0);
+  // Handle mass email to all active customers
+  const handleMassEmail = () => {
+    // Get all active customer emails
+    const activeCustomers = customers.filter(c => c.status === 'active');
+    
+    if (activeCustomers.length === 0) {
+      alert('No active customers found.');
+      return;
+    }
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount);
+    // Get all valid emails
+    const emailList = activeCustomers
+      .filter(c => c.email && c.email.trim() !== '')
+      .map(c => c.email)
+      .join(',');
+
+    if (!emailList) {
+      alert('No valid email addresses found for active customers.');
+      return;
+    }
+
+    // Create email content
+    const subject = 'Special Offer from K&R POWERWASHING';
+    const message = `Dear Valued Customer,
+
+We hope this message finds you well!
+
+At K&R POWERWASHING, we're grateful for your continued trust and support. We wanted to reach out to let you know about our latest services and special offers.
+
+Whether you need:
+• House Exterior Washing
+• Driveway Cleaning
+• Deck/Patio Cleaning
+• Roof Cleaning
+• Sidewalk & Gutter Cleaning
+
+We're here to help keep your property looking its best!
+
+Contact us today to schedule your next service or to learn more about our current promotions.
+
+Thank you for choosing K&R POWERWASHING!
+
+Best regards,
+K&R POWERWASHING Team
+
+www.krpowerwashing.org`;
+
+    // Create mailto link with BCC for all customers
+    const mailtoLink = `mailto:?bcc=${encodeURIComponent(emailList)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+    window.location.href = mailtoLink;
   };
 
   return (
     <div className="space-y-6">
-      {/* Dashboard Widgets */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-blue-100 text-sm font-medium">Total Customers</p>
-                <p className="text-3xl font-bold">{totalCustomers}</p>
-                <p className="text-blue-200 text-xs">{activeCustomers} active</p>
-              </div>
-              <Users className="size-10 text-blue-200" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-purple-100 text-sm font-medium">Completed Jobs</p>
-                <p className="text-3xl font-bold">{completedJobs}</p>
-                <p className="text-purple-200 text-xs">{jobs.length} total</p>
-              </div>
-              <Briefcase className="size-10 text-purple-200" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-green-100 text-sm font-medium">Total Revenue</p>
-                <p className="text-2xl font-bold">{formatCurrency(totalRevenue)}</p>
-                <p className="text-green-200 text-xs">{paidInvoices.length} paid invoices</p>
-              </div>
-              <DollarSign className="size-10 text-green-200" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-cyan-500 to-cyan-600 text-white">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-cyan-100 text-sm font-medium">Pending Revenue</p>
-                <p className="text-2xl font-bold">{formatCurrency(pendingRevenue)}</p>
-                <p className="text-cyan-200 text-xs">{pendingInvoices.length} pending invoices</p>
-              </div>
-              <TrendingUp className="size-10 text-cyan-200" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-red-500 to-red-600 text-white">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-red-100 text-sm font-medium">Overdue</p>
-                <p className="text-2xl font-bold">{formatCurrency(overdueRevenue)}</p>
-                <p className="text-red-200 text-xs">{overdueInvoices.length} overdue invoices</p>
-              </div>
-              <AlertCircle className="size-10 text-red-200" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="flex items-center justify-between">
+      <YearlyRemindersBanner />
+      <div className="flex items-center justify-between gap-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 size-4" />
           <Input
@@ -279,64 +282,208 @@ export function CustomersTab() {
             className="pl-10"
           />
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="size-4 mr-2" />
-              Add Customer
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add New Customer</DialogTitle>
-              <DialogDescription>
-                Enter the customer's details below to add them to the system.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="name">Name</Label>
-                <Input
-                  id="name"
-                  value={newCustomer.name}
-                  onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
-                  placeholder="John Smith"
-                />
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleMassEmail}
+            title="Send mass email to all active customers"
+            className="border-[#2563eb] text-[#2563eb] hover:bg-blue-50"
+          >
+            <Send className="size-4 mr-2" />
+            Mass Email
+          </Button>
+          <Dialog open={isArchivedDialogOpen} onOpenChange={setIsArchivedDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="border-gray-600 text-gray-600 hover:bg-gray-50">
+                <Archive className="size-4 mr-2" />
+                View Archived ({archivedCustomers.length})
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-5xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Archived Customers</DialogTitle>
+                <DialogDescription>
+                  View and manage archived customer records. You can restore customers to the active list or permanently delete them.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="mt-4">
+                {archivedCustomers.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    No archived customers found.
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Contact</TableHead>
+                        <TableHead>Address</TableHead>
+                        <TableHead>Archived Date</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {archivedCustomers.map((archivedCustomer: any) => (
+                        <TableRow key={archivedCustomer.id}>
+                          <TableCell className="font-medium">{archivedCustomer.name}</TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2 text-sm">
+                                <Mail className="size-3 text-gray-400" />
+                                {archivedCustomer.email}
+                              </div>
+                              <div className="flex items-center gap-2 text-sm">
+                                <Phone className="size-3 text-gray-400" />
+                                {archivedCustomer.phone}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2 text-sm">
+                              <MapPin className="size-3 text-gray-400" />
+                              {archivedCustomer.address}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {new Date(archivedCustomer.archivedDate).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric'
+                            })}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleRestoreCustomer(archivedCustomer)}
+                                title="Restore customer to active list"
+                                className="border-[#2563eb] text-[#2563eb] hover:bg-blue-50"
+                              >
+                                <RotateCcw className="size-4 mr-1" />
+                                Restore
+                              </Button>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    title="Permanently delete customer"
+                                    className="border-red-600 text-red-600 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="size-4 mr-1" />
+                                    Delete
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Permanently Delete Customer?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      This will permanently delete {archivedCustomer.name} from the archive. This action cannot be undone and all data will be lost.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => handlePermanentDelete(archivedCustomer)} className="bg-red-600 hover:bg-red-700">
+                                      Permanently Delete
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </div>
-              <div>
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={newCustomer.email}
-                  onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
-                  placeholder="john@email.com"
-                />
-              </div>
-              <div>
-                <Label htmlFor="phone">Phone</Label>
-                <Input
-                  id="phone"
-                  value={newCustomer.phone}
-                  onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
-                  placeholder="(555) 123-4567"
-                />
-              </div>
-              <div>
-                <Label htmlFor="address">Address</Label>
-                <Input
-                  id="address"
-                  value={newCustomer.address}
-                  onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })}
-                  placeholder="123 Main St, City, State ZIP"
-                />
-              </div>
-              <Button onClick={handleAddCustomer} className="w-full">
+            </DialogContent>
+          </Dialog>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="size-4 mr-2" />
                 Add Customer
               </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add New Customer</DialogTitle>
+                <DialogDescription>
+                  Enter the customer's details below to add them to the system.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="name">Name</Label>
+                  <Input
+                    id="name"
+                    value={newCustomer.name}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
+                    placeholder="John Smith"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={newCustomer.email}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
+                    placeholder="john@email.com"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input
+                    id="phone"
+                    value={newCustomer.phone}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                    placeholder="(555) 123-4567"
+                  />
+                </div>
+                <div>
+                  <Label>Address</Label>
+                  <div className="space-y-2">
+                    <Input
+                      id="street"
+                      value={addressParts.street}
+                      onChange={(e) => setAddressParts({ ...addressParts, street: e.target.value })}
+                      placeholder="Street Address"
+                    />
+                    <div className="grid grid-cols-3 gap-2">
+                      <Input
+                        id="city"
+                        value={addressParts.city}
+                        onChange={(e) => setAddressParts({ ...addressParts, city: e.target.value })}
+                        placeholder="City"
+                        className="col-span-1"
+                      />
+                      <Input
+                        id="state"
+                        value={addressParts.state}
+                        onChange={(e) => setAddressParts({ ...addressParts, state: e.target.value })}
+                        placeholder="State"
+                        className="col-span-1"
+                      />
+                      <Input
+                        id="zip"
+                        value={addressParts.zip}
+                        onChange={(e) => setAddressParts({ ...addressParts, zip: e.target.value })}
+                        placeholder="ZIP"
+                        className="col-span-1"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <Button onClick={handleAddCustomer} className="w-full">
+                  Add Customer
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg border">
@@ -366,7 +513,7 @@ export function CustomersTab() {
                     </div>
                     <div className="flex items-center gap-2 text-sm">
                       <Phone className="size-3 text-gray-400" />
-                      {formatPhoneNANP(customer.phone)}
+                      {customer.phone}
                     </div>
                   </div>
                 </TableCell>
@@ -389,7 +536,7 @@ export function CustomersTab() {
                       variant="ghost"
                       size="sm"
                       onClick={() => {
-                        window.open(`mailto:${customer.email}`, '_blank');
+                        window.location.href = `mailto:${customer.email}`;
                       }}
                       title="Email customer"
                     >
@@ -477,22 +624,22 @@ export function CustomersTab() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          title="Delete customer"
+                          title="Archive customer"
                         >
                           <Trash2 className="size-4 text-red-600" />
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
-                          <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                          <AlertDialogTitle>Archive Customer?</AlertDialogTitle>
                           <AlertDialogDescription>
-                            This will permanently delete {customer.name} from the system. This action cannot be undone.
+                            This will archive {customer.name}'s information. The customer data will be saved and can be retrieved later if needed. They will be removed from the active customer list.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handleDeleteCustomer(customer.id)} className="bg-red-600 hover:bg-red-700">
-                            Delete
+                          <AlertDialogAction onClick={() => handleArchiveCustomer(customer)} className="bg-orange-600 hover:bg-orange-700">
+                            Archive Customer
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>

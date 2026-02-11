@@ -28,6 +28,7 @@ Thumbs.db
 !README.md
 !ATTRIBUTIONS.md
 !CURRENT_MAINTAINER
+!tsconfig.json
 
 # Include project directories
 !src/
