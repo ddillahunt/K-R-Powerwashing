@@ -374,7 +374,8 @@ export function CalendarTab() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <Card className="lg:col-span-1">
+      <div className="lg:col-span-1 space-y-4">
+      <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
           <CardTitle>Calendar</CardTitle>
           <div className="flex rounded-lg border overflow-hidden">
@@ -453,6 +454,29 @@ export function CalendarTab() {
           )}
         </CardContent>
       </Card>
+
+      {/* Crew Members List */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+          <CardTitle className="text-sm font-medium">Crew Members</CardTitle>
+          <Users className="size-4 text-gray-400" />
+        </CardHeader>
+        <CardContent>
+          {technicians.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-2">No crew members added yet</p>
+          ) : (
+            <div className="space-y-2">
+              {technicians.map((tech: string) => (
+                <div key={tech} className="flex items-center gap-2 p-2 bg-gray-50 rounded-md border">
+                  <Users className="size-4 text-gray-500" />
+                  <span className="text-sm">{tech}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      </div>
 
       <Card className="lg:col-span-2">
         <CardHeader className="flex flex-row items-center justify-between">
