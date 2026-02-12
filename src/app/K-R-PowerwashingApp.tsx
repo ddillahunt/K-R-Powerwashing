@@ -204,23 +204,23 @@ export default function App() {
             </div>
           </div>
 
-          <TabsContent value="customers">
+          <TabsContent value="customers" forceMount className="data-[state=inactive]:hidden">
             <CustomersTab />
           </TabsContent>
 
-          <TabsContent value="calendar">
+          <TabsContent value="calendar" forceMount className="data-[state=inactive]:hidden">
             <CalendarTab />
           </TabsContent>
 
-          <TabsContent value="quotes">
+          <TabsContent value="quotes" forceMount className="data-[state=inactive]:hidden">
             <QuotesTab />
           </TabsContent>
 
-          <TabsContent value="jobs">
+          <TabsContent value="jobs" forceMount className="data-[state=inactive]:hidden">
             <JobsTab />
           </TabsContent>
 
-          <TabsContent value="invoices">
+          <TabsContent value="invoices" forceMount className="data-[state=inactive]:hidden">
             <InvoicesTab />
           </TabsContent>
         </Tabs>

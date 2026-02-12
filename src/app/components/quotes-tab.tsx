@@ -262,6 +262,8 @@ export function QuotesTab() {
 
   const handleEditQuote = () => {
     if (editingQuote) {
+      const serviceString = newQuote.services.join(', ');
+
       const updatedQuotes = quotes.map((q) =>
         q.id === editingQuote.id
           ? {
@@ -274,6 +276,44 @@ export function QuotesTab() {
           : q
       );
       setQuotes(updatedQuotes);
+
+      // Always sync quote changes to linked jobs and invoices
+      const savedJobs = localStorage.getItem('kr-jobs');
+      if (savedJobs) {
+        const allJobs = JSON.parse(savedJobs);
+        let jobsUpdated = false;
+        allJobs.forEach((job: any) => {
+          if (job.quoteId === editingQuote.id) {
+            job.service = serviceString;
+            job.customerName = newQuote.customerName;
+            job.notes = newQuote.notes;
+            jobsUpdated = true;
+          }
+        });
+        if (jobsUpdated) {
+          localStorage.setItem('kr-jobs', JSON.stringify(allJobs));
+          window.dispatchEvent(new Event('kr-jobs-updated'));
+        }
+      }
+
+      const savedInvoices = localStorage.getItem('kr-invoices');
+      if (savedInvoices) {
+        const allInvoices = JSON.parse(savedInvoices);
+        let invoicesUpdated = false;
+        allInvoices.forEach((inv: any) => {
+          if (inv.quoteId === editingQuote.id) {
+            inv.service = serviceString;
+            inv.customerName = newQuote.customerName;
+            inv.amount = parseFloat(newQuote.amount);
+            invoicesUpdated = true;
+          }
+        });
+        if (invoicesUpdated) {
+          localStorage.setItem('kr-invoices', JSON.stringify(allInvoices));
+          window.dispatchEvent(new Event('kr-invoices-updated'));
+        }
+      }
+
       setEditingQuote(null);
       setNewQuote({ customerName: '', services: [] as string[], amount: '', notes: '' });
       setIsEditDialogOpen(false);
