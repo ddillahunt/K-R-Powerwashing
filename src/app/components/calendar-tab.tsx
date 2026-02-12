@@ -28,9 +28,17 @@ interface Job {
   scheduledDate: string;
   assignedCrew: string;
   status: 'pending' | 'scheduled' | 'in-progress' | 'completed' | 'cancelled';
+  scheduledTime?: string;
   notes?: string;
   reminderSent?: boolean;
 }
+
+const formatTime12h = (time: string) => {
+  const [h, m] = time.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour = h % 12 || 12;
+  return `${hour}:${String(m).padStart(2, '0')} ${period}`;
+};
 
 type ViewMode = 'week' | 'month';
 
@@ -419,7 +427,9 @@ export function CalendarTab() {
                               job.status === 'completed' ? 'bg-green-100 border border-green-200' :
                               'bg-red-300 border border-red-400'
                             }`}>
-                              <div className="font-semibold truncate">{job.customerName}</div>
+                              <div className="font-semibold truncate">
+                                {job.scheduledTime ? `${formatTime12h(job.scheduledTime)} - ` : ''}{job.customerName}
+                              </div>
                               {job.assignedCrew && (
                                 <div className="truncate flex items-center gap-1">
                                   <User className="size-3" />
@@ -467,7 +477,7 @@ export function CalendarTab() {
                               </div>
                               <div className="flex items-center gap-2">
                                 <CalendarIcon className="size-3.5 text-gray-400 shrink-0" />
-                                <span>{format(new Date(job.scheduledDate), 'MMM d, yyyy')}</span>
+                                <span>{format(new Date(job.scheduledDate), 'MMM d, yyyy')}{job.scheduledTime ? ` at ${formatTime12h(job.scheduledTime)}` : ''}</span>
                               </div>
                               {job.assignedCrew && (
                                 <div className="flex items-center gap-2">
